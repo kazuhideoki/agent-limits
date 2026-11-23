@@ -901,6 +901,10 @@ def main() -> int:
   parser.add_argument("--history", action="store_true", help="過去7日間の使用枠と内訳をバーで追加表示")
   args = parser.parse_args()
 
+  return show_codex(args.history)
+
+
+def show_codex(include_history: bool = False) -> int:
   usage_payload = fetch_response(DEFAULT_AUTH_PATH, DEFAULT_USAGE_URL, DEFAULT_TIMEOUT_SECONDS, "usage limits")
   resets_payload = fetch_response(DEFAULT_AUTH_PATH, DEFAULT_RESETS_URL, DEFAULT_TIMEOUT_SECONDS, "reset credits")
   usage_records = normalize_usage_records(find_usage_records(usage_payload))
@@ -909,7 +913,7 @@ def main() -> int:
   history = None
   history_error = None
   bar_column = current_bar_column(usage_records, reset_records)
-  if args.history:
+  if include_history:
     try:
       payload = fetch_response(DEFAULT_AUTH_PATH, DEFAULT_HISTORY_URL, DEFAULT_TIMEOUT_SECONDS, "plan history", allow_unavailable=True)
       history = render_history(payload)
