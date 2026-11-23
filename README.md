@@ -1,4 +1,31 @@
-# Codex Limits
+# Agent Limits
+
+Codex、Claude Code、Antigravity CLI（agy） の使用枠をターミナルで一覧できます。Python 3.10 以降の標準ライブラリを使います。
+
+```sh
+./agent-limits
+./agent-limits claude
+./agent-limits agy
+./agent-limits codex --history
+```
+
+PATH から使うには、実行ファイル `agent-limits` へのシンボリックリンクを作成してください。一覧では取得に失敗したサービスがあっても残りを表示し、終了コード 1 を返します。
+
+### Claude Code
+
+Claude Code のステータスラインが受け取る JSON から、5時間枠・週間枠の使用率とリセット時刻を記録します。既存スクリプトが `input=$(cat)` で入力を読む場合は、その直後に次を追加してください。
+
+```sh
+printf '%s' "$input" | agent-limits capture-claude
+```
+
+対応プランで最初の応答を受け取ると記録が始まります。表示には取得からの経過時間を添え、リセットを過ぎた枠は除きます。キャッシュは `${XDG_CACHE_HOME:-~/.cache}/agent-limits/claude.json` に保存します。同じ OS ユーザーで複数アカウントを使う場合は、最後に記録したアカウントの値が表示されます。
+
+### Antigravity CLI (agy)
+
+ログイン済みの `agy` を PATH に置いてください。`agent-limits agy` は `agy -p /usage` を実行し、モデルグループごとの利用枠、残量、リセット時刻を表示します。従来の `agent-limits gemini` も同じ表示になります。
+
+### Codex
 
 `coli` は Codex の現在の使用量と reset credits を `~/.codex/auth.json` の認証情報で取得し、terminal 向けに併記するコマンドです。
 
@@ -10,12 +37,12 @@ ChatGPTアカウントでCodexにログインし、`~/.codex/auth.json` に `tok
 APIキー認証のみの環境には対応していません。
 
 ```sh
-ghq get kazuhideoki/codex-limits
-cd "$(ghq root)/github.com/kazuhideoki/codex-limits"
+ghq get kazuhideoki/agent-limits
+cd "$(ghq root)/github.com/kazuhideoki/agent-limits"
 python3 codex_limits.py
 ```
 
-ghqを使わない場合は `git clone https://github.com/kazuhideoki/codex-limits.git` で取得できます。
+ghqを使わない場合は `git clone https://github.com/kazuhideoki/agent-limits.git` で取得できます。
 dotfilesの `coli` ラッパーは、このghq配置先の `codex_limits.py` を実行します。
 単独で `coli` コマンドを使う場合は、PATH内のディレクトリにスクリプトへのリンクを作成してください。
 

@@ -1,0 +1,125 @@
+"""Terminal usage overview for Codex, Claude Code and Antigravity CLI."""
+
+import argparse
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+from tempfile import NamedTemporaryFile
+import time
+
+import codex_limits as ui
+
+
+WINDOWS = {
+  "five_hour": ("5時間の使用制限", 18000),
+  "seven_day": ("週間利用上限", 604800),
+}
+
+
+def cache_path():
+  return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "agent-limits" / "claude.json"
+
+
+def number(value, limit):
+  return type(value) in (int, float) and 0 <= value <= limit
+
+
+def capture_claude(payload, path):
+  limits = payload.get("rate_limits") if isinstance(payload, dict) else None
+  if not isinstance(limits, dict):
+    return
+  windows = {}
+  for key in WINDOWS:
+    window = limits.get(key)
+    if not isinstance(window, dict):
+      continue
+    used, reset = window.get("used_percentage"), window.get("resets_at")
+    if number(used, 100) and number(reset, 253402214400):
+      windows[key] = {"used_percentage": used, "resets_at": reset}
+  path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+  with NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as tmp:
+    try:
+      json.dump({"observed": time.time(), "windows": windows}, tmp)
+      tmp.flush()
+      os.replace(tmp.name, path)
+    finally:
+      Path(tmp.name).unlink(missing_ok=True)
+
+
+def show_claude():
+  path = cache_path()
+  if not path.exists():
+    raise ValueError("利用枠の記録待ちです。Claude Code のステータスライン連携を確認してください。")
+  data = ui.load_json(path)
+  now = time.time()
+  print(f"Claude Code（{int(max(0, now - data['observed']) // 60)} 分前に取得）")
+  records = []
+  for key, window in data["windows"].items():
+    if window["resets_at"] > now:
+      label, seconds = WINDOWS[key]
+      records.append({"title": label, "window_seconds": seconds, "reset_at": window["resets_at"],
+                      "remaining_percent": 100 - window["used_percentage"]})
+  if records:
+    print("\n".join(ui.render_current_usage_tables(ui.normalize_usage_records(records))))
+  else:
+    print("有効な使用枠の記録がありません。次の Claude Code 応答後に更新されます。")
+  return 0
+
+
+def show_agy():
+  try:
+    result = subprocess.run(
+      ["agy", "--print-timeout", "20s", "-p", "/usage"],
+      stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30,
+    )
+  except FileNotFoundError as error:
+    raise ValueError("Antigravity CLI (agy) が PATH に見つかりません。") from error
+  except subprocess.TimeoutExpired as error:
+    raise ValueError("agy の利用枠照会がタイムアウトしました。") from error
+  if result.returncode:
+    raise ValueError(f"agy /usage の取得に失敗しました（終了コード {result.returncode}）。agy のログイン状態を確認してください。")
+
+  records = []
+  for line in result.stdout.splitlines():
+    if not line.strip():
+      continue
+    fields = line.split("\t")
+    if len(fields) != 4:
+      raise ValueError("agy /usage の出力形式を読み取れません。")
+    group, window, percent, reset = fields
+    if not percent.endswith("%") or not number(ui.number_from_value(percent[:-1]), 100):
+      raise ValueError("agy /usage の残量を読み取れません。")
+    title = window if window.startswith(group + " ") else f"{group} · {window}"
+    records.append({"title": title, "remaining_percent": percent[:-1], "reset_at": reset})
+  if not records:
+    raise ValueError("agy /usage から利用枠が返りませんでした。")
+  print("Antigravity CLI (agy)")
+  print("\n".join(ui.render_current_usage_tables(ui.normalize_usage_records(records))))
+  return 0
+
+
+def main(argv=None):
+  parser = argparse.ArgumentParser(prog="agent-limits", description="各サービスの使用枠を表示")
+  parser.add_argument("service", nargs="?", choices=("codex", "claude", "agy", "gemini", "capture-claude"))
+  parser.add_argument("--history", action="store_true", help="Codex の履歴を追加")
+  args = parser.parse_args(argv)
+  if args.history and args.service not in (None, "codex"):
+    parser.error("--history は一覧または codex で指定してください")
+  if args.service == "capture-claude":
+    capture_claude(json.load(sys.stdin), cache_path())
+    return 0
+  providers = {"codex": lambda: ui.show_codex(args.history), "claude": show_claude, "agy": show_agy}
+  if args.service == "gemini":
+    args.service = "agy"
+  status = 0
+  for index, name in enumerate([args.service] if args.service else providers):
+    if index:
+      print()
+    try:
+      status |= providers[name]()
+    except (OSError, ValueError, SystemExit, KeyError, TypeError) as error:
+      print(f"{name}: {error}", file=sys.stderr)
+      status = 1
+  return status
