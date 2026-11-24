@@ -61,6 +61,9 @@ def quota(record, seconds, now):
     background = f'<span class="period-fill" style="width:{time_left}%"></span>'
   color = " low" if fill and time_left is not None and remaining < time_left else ""
   reset_label = f"{date_label(reset)} リセット" if reset else "リセット時刻不明"
+  if record.get("awaiting_start"):
+    period_label = "未開始"
+    reset_label = "最初のメッセージで開始"
   return (f'<div class="meter-label"><span>利用枠残り <strong class="value">{amount}</strong></span>'
           f'<span>期間残り <strong>{period_label}</strong></span></div>'
           f'<div class="bar overlay{color}" aria-hidden="true">{background}{fill}</div><div class="labels">'
@@ -142,8 +145,11 @@ def collect_dashboard(service, read_claude, read_agy):
         records = codex_records(ui.DEFAULT_USAGE_URL, "usage limits", ui.find_usage_records)
       elif key == "claude":
         age, records = read_claude()
-        age_label = f"{age // 60}時間{age % 60}分" if age >= 60 else f"{age}分"
-        subtitle += f" · {age_label}前に取得"
+        if age is None:
+          subtitle += " · 今回取得"
+        else:
+          age_label = f"{age // 60}時間{age % 60}分" if age >= 60 else f"{age}分"
+          subtitle += f" · 保存記録（{age_label}前）"
         empty = "有効な記録なし"
       else:
         records = read_agy()

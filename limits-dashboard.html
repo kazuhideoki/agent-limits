@@ -17,14 +17,28 @@
 .credit.warning i{background:#b77425}
 .credit.error i{background:#b74739}
 @media(max-width:540px){.tickets .credit{grid-template-columns:1fr auto;gap:5px}.credit>div{grid-column:1/-1;grid-row:2}}
+#results{position:relative;display:flow-root}
+#results[aria-busy="true"]::after{
+  content:"";position:absolute;inset:0;pointer-events:none;border-radius:12px;
+  background:linear-gradient(105deg,transparent 32%,rgba(222,235,227,.36) 44%,rgba(255,255,255,.60) 50%,rgba(222,235,227,.36) 56%,transparent 68%);
+  background-size:280% 100%;animation:shimmer 2.2s ease-in-out infinite;
+}
+@keyframes shimmer{from{background-position:100% 0}to{background-position:0 0}}
+@media(prefers-reduced-motion:reduce){
+  #results[aria-busy="true"]::after{animation:none;background:repeating-linear-gradient(135deg,transparent 0 7px,rgba(106,142,123,.12) 7px 8px)}
+}
+#refresh-state:not(.error){position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+#refresh-state.error{color:#893e29}
 </style>
 <main><header><h1>モデル利用枠</h1><small id="snapshot" role="status">$snapshot</small></header>
+<div id="refresh-state" role="status" hidden></div>
 <div class="tools">
 <div id="filters" aria-label="表示する期間">
 <button data-mode="all" aria-pressed="true">すべて</button>
 <button data-mode="short" aria-pressed="false">5時間</button>
 <button data-mode="week" aria-pressed="false">週間</button>
 </div></div>
+<div id="results" aria-busy="false">
 <div class="grid" id="grid">
 <div class="head">モデル・共有枠</div>
 <div class="head" data-period="short">5時間枠</div>
@@ -34,10 +48,17 @@
 <div id="other">$other</div>
 <footer>週間の「期間の残り」は毎日 09:00–20:00（JST）の利用時間で計算。リセットまでの時間は実時間で表示。</footer>
 <div id="tickets">$tickets</div>
+</div>
 </main>
 <script>
 async function refresh() {
   const stamp = document.querySelector('#snapshot');
+  const state = document.querySelector('#refresh-state');
+  const previous = stamp.textContent;
+  state.hidden = false;
+  const results = document.querySelector('#results');
+  results.setAttribute('aria-busy', 'true');
+  state.textContent = previous ? '利用枠を更新中…　前回の結果を表示しています' : '各サービスの利用枠を取得中…';
   try {
     const response = await fetch('/api/limits', {
       headers: {'X-Agent-Limits': 'dashboard'},
@@ -49,9 +70,13 @@ async function refresh() {
       document.getElementById(key).innerHTML = data[key];
     }
     stamp.textContent = data.snapshot;
+    state.hidden = true;
     document.querySelector('#filters button[aria-pressed="true"]').click();
   } catch {
-    stamp.textContent = '更新に失敗しました。再読み込みしてください。';
+    state.classList.add('error');
+    state.textContent = previous ? '更新に失敗しました。前回の結果を表示しています。' : '更新に失敗しました。再読み込みしてください。';
+  } finally {
+    results.setAttribute('aria-busy', 'false');
   }
 }
 if ($live) refresh();

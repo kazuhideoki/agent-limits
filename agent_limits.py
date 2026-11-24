@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, gettempdir
 import time
 
 import codex_limits as ui
@@ -62,6 +62,48 @@ def read_claude():
       records.append({"title": label, "window_seconds": seconds, "reset_at": window["resets_at"],
                       "remaining_percent": 100 - window["used_percentage"]})
   return age_minutes, records
+
+
+def live_claude_records():
+  request = {"type": "control_request", "request_id": "limits",
+             "request": {"subtype": "get_usage", "skip_behaviors": True}}
+  result = subprocess.run(
+    ["claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json",
+     "--verbose", "--no-session-persistence", "--strict-mcp-config", "--tools", "",
+     "--settings", '{"disableAllHooks":true}'],
+    input=json.dumps(request) + "\n", cwd=gettempdir(), capture_output=True, text=True, timeout=20,
+  )
+  if result.returncode:
+    raise ValueError("Claude Code の照会に失敗しました")
+  for line in result.stdout.splitlines():
+    message = json.loads(line)
+    if message.get("type") != "control_response":
+      continue
+    reply = message["response"]
+    if reply.get("request_id") != "limits" or reply.get("subtype") != "success":
+      continue
+    data = reply["response"]
+    if not data.get("rate_limits_available"):
+      break
+    records = []
+    for key, (label, seconds) in WINDOWS.items():
+      window = data["rate_limits"].get(key)
+      if not isinstance(window, dict) or not number(window.get("utilization"), 100):
+        continue
+      reset = window.get("resets_at")
+      records.append({"title": label, "window_seconds": seconds, "reset_at": reset,
+                      "awaiting_start": key == "five_hour" and window["utilization"] == 0 and reset is None,
+                      "remaining_percent": 100 - window["utilization"]})
+    if records:
+      return records
+  raise ValueError("Claude Code から利用枠を取得できませんでした")
+
+
+def refresh_claude():
+  try:
+    return None, live_claude_records()
+  except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired):
+    return read_claude()
 
 
 def show_claude():
@@ -122,7 +164,7 @@ def main(argv=None):
     if args.history or args.html or args.service == "capture-claude":
       parser.error("--serve は --html、--history、capture-claude と併用できません")
     from limits_server import serve
-    return serve(args.service, read_claude, read_agy)
+    return serve(args.service, refresh_claude, read_agy)
   if args.html:
     if args.history or args.service == "capture-claude":
       parser.error("--html は現在の利用枠の表示に指定してください")
