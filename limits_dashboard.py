@@ -50,19 +50,20 @@ def quota(record, seconds, now):
     reset = None
   time_left = ui.window_remaining_percent(reset_value, seconds, now) if reset else None
   amount = "不明"
-  fill = marker = ""
+  fill = ""
   if remaining is not None and 0 <= remaining <= 100:
     amount = f'{remaining:g}<span>%</span>'
     fill = f'<i style="width:{remaining}%"></i>'
-  time_label = "期間残り 不明"
+  period_bar = '<div class="meter-label">期間残り <strong>不明</strong></div>'
   if time_left is not None:
-    time_label = f"期間残り {time_left:.0f}%"
-    marker = f'<b style="left:{time_left}%"></b>'
+    period_bar = (f'<div class="meter-label">期間残り <strong>{time_left:.0f}%</strong></div>'
+                  f'<div class="bar period"><i style="width:{time_left}%"></i></div>')
   color = " low" if fill and time_left is not None and remaining < time_left else ""
   reset_label = f"{date_label(reset)} リセット" if reset else "リセット時刻不明"
-  return (f'<div class="labels"><strong class="value">{amount}</strong>{time_label}</div>'
-          f'<div class="bar{color}">{fill}{marker}</div><div class="labels">'
+  return (f'<div class="meter-label">利用枠残り <strong class="value">{amount}</strong></div>'
+          f'<div class="bar{color}">{fill}</div>{period_bar}<div class="labels">'
           f'<strong>{duration(reset, now) if reset else ""}</strong>{reset_label}</div>')
+
 
 
 def model_rows(name, subtitle, records, now, empty="該当枠なし"):
@@ -103,12 +104,19 @@ def ticket_section(records, now):
     valid = label == "利用可能"
     remaining = duration(expiry, now) if valid and expiry else label
     expires = f'{date_label(expiry)} 失効' if expiry else '失効日時不明'
-    urgent = valid and expiry and (expiry - now).total_seconds() < 86400
-    row = f'<li class="{"urgent" if urgent else ""}"><strong>{remaining}</strong><span>{expires}</span></li>'
+    bar = ""
+    urgency = ""
+    if valid and expiry:
+      days = (expiry - now).total_seconds() / 86400
+      percent = min(100, 100 * days / ui.DEFAULT_RESET_FULL_DAYS)
+      urgency = ui.reset_urgency(days)
+      bar = f'<div class="bar credit-bar"><i style="width:{percent:.2f}%"></i></div>'
+    row = (f'<li class="credit {urgency}"><strong>{remaining}</strong>'
+           f'<div>{bar}</div><span>{expires}</span></li>')
     tickets.append((not valid, expiry.timestamp() if expiry else math.inf, row))
   listing = ''.join(row for _, _, row in sorted(tickets))
   return (f'<section class="tickets"><h2>Codex リセットチケット <small>利用可能 {count}枚</small></h2>'
-          f'<ul>{listing}</ul></section>')
+          f'<small>失効までの残り時間（満幅＝{ui.DEFAULT_RESET_FULL_DAYS:g}日）</small><ul>{listing}</ul></section>')
 
 
 def codex_records(url, label, extract):
