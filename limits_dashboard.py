@@ -129,52 +129,81 @@ def codex_records(url, label, extract):
   return extract(payload)
 
 
-def collect_dashboard(service, read_claude, read_agy):
+PROVIDERS = {"codex": "Codex", "claude": "Claude Code", "agy": "Antigravity"}
+
+
+def dashboard_keys(service):
+  if service == "codex":
+    return ["codex", "tickets"]
+  if service:
+    return ["agy" if service == "gemini" else service]
+  return [*PROVIDERS, "tickets"]
+
+
+def collect_part(key, read_claude, read_agy):
   now = datetime.now(ui.ACTIVE_TIMEZONE)
+  stamp = now.strftime("%Y/%m/%d %H:%M:%S JST 時点")
+  if key == "tickets":
+    try:
+      credits = codex_records(ui.DEFAULT_RESETS_URL, "reset credits", ui.find_reset_credit_records)
+      return {"tickets": ticket_section(credits, now), "snapshot": stamp}, 0
+    except ERRORS as error:
+      print(f"リセットチケット: {error}", file=sys.stderr)
+      return {"tickets": '<section class="tickets"><h2>Codex リセットチケット</h2>取得失敗</section>', "snapshot": stamp}, 1
+  name = PROVIDERS[key]
+  status = 0
+  subtitle = "共通枠"
+  empty = "該当枠なし"
+  try:
+    if key == "codex":
+      records = codex_records(ui.DEFAULT_USAGE_URL, "usage limits", ui.find_usage_records)
+    elif key == "claude":
+      age, records = read_claude()
+      if age is None:
+        subtitle += " · 今回取得"
+      else:
+        age_label = f"{age // 60}時間{age % 60}分" if age >= 60 else f"{age}分"
+        subtitle += f" · 保存記録（{age_label}前）"
+      empty = "有効な記録なし"
+    else:
+      records = read_agy()
+    row, other = model_rows(name, subtitle, records, now, empty)
+  except ERRORS as error:
+    print(f"{name}: {error}", file=sys.stderr)
+    status = 1
+    row, other = model_rows(name, "", [], now, "取得失敗")
+  return {"rows": row, "other": other, "snapshot": stamp}, status
+
+
+def assemble_dashboard(keys, parts):
   rows, others = [], []
   tickets = ""
-  status = 0
-  providers = {"codex": "Codex", "claude": "Claude Code", "agy": "Antigravity"}
-  selected = ["agy" if service == "gemini" else service] if service else providers
-  for key in selected:
-    name = providers[key]
-    subtitle = "共通枠"
-    empty = "該当枠なし"
-    try:
-      if key == "codex":
-        records = codex_records(ui.DEFAULT_USAGE_URL, "usage limits", ui.find_usage_records)
-      elif key == "claude":
-        age, records = read_claude()
-        if age is None:
-          subtitle += " · 今回取得"
-        else:
-          age_label = f"{age // 60}時間{age % 60}分" if age >= 60 else f"{age}分"
-          subtitle += f" · 保存記録（{age_label}前）"
-        empty = "有効な記録なし"
-      else:
-        records = read_agy()
-      row, other = model_rows(name, subtitle, records, now, empty)
-    except ERRORS as error:
-      print(f"{name}: {error}", file=sys.stderr)
-      status = 1
-      row, other = model_rows(name, "", [], now, "取得失敗")
-    rows.append(row)
-    others.append(other)
-    if key == "codex":
-      try:
-        credits = codex_records(ui.DEFAULT_RESETS_URL, "reset credits", ui.find_reset_credit_records)
-        tickets = ticket_section(credits, now)
-      except ERRORS as error:
-        print(f"リセットチケット: {error}", file=sys.stderr)
-        status = 1
-        tickets = '<section class="tickets"><h2>Codex リセットチケット</h2>取得失敗</section>'
-  other = ''.join(others)
+  for key in keys:
+    part = parts.get(key, {})
+    if key == "tickets":
+      tickets = '<div data-part="tickets">' + part.get("tickets", '<section class="tickets"><h2>Codex リセットチケット</h2></section>') + '</div>'
+      continue
+    row = part.get("rows")
+    if row is None:
+      row, _ = model_rows(PROVIDERS[key], "", [], None, "取得中…")
+    rows.append(f'<div class="provider" data-part="{key}">{row}</div>')
+    others.append(f'<ul data-other="{key}">{part.get("other", "")}</ul>')
   return {
-    "snapshot": now.strftime("%Y/%m/%d %H:%M:%S JST 時点"),
+    "snapshot": max((part["snapshot"] for part in parts.values()), default=""),
     "rows": ''.join(rows),
-    "other": f'<section class="tickets"><h2>その他の枠</h2><ul>{other}</ul></section>' if other else "",
+    "other": '<section class="tickets extra"><h2>その他の枠</h2>' + ''.join(others) + '</section>',
     "tickets": tickets,
-  }, status
+  }
+
+
+def collect_dashboard(service, read_claude, read_agy):
+  keys = dashboard_keys(service)
+  parts = {}
+  status = 0
+  for key in keys:
+    parts[key], error = collect_part(key, read_claude, read_agy)
+    status |= error
+  return assemble_dashboard(keys, parts), status
 
 
 def render_dashboard(data, live=False):
