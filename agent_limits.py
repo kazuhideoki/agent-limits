@@ -48,19 +48,25 @@ def capture_claude(payload, path):
       Path(tmp.name).unlink(missing_ok=True)
 
 
-def show_claude():
+def read_claude():
   path = cache_path()
   if not path.exists():
     raise ValueError("利用枠の記録待ちです。Claude Code のステータスライン連携を確認してください。")
   data = ui.load_json(path)
   now = time.time()
-  print(f"Claude Code（{int(max(0, now - data['observed']) // 60)} 分前に取得）")
+  age_minutes = int(max(0, now - data["observed"]) // 60)
   records = []
   for key, window in data["windows"].items():
     if window["resets_at"] > now:
       label, seconds = WINDOWS[key]
       records.append({"title": label, "window_seconds": seconds, "reset_at": window["resets_at"],
                       "remaining_percent": 100 - window["used_percentage"]})
+  return age_minutes, records
+
+
+def show_claude():
+  age_minutes, records = read_claude()
+  print(f"Claude Code（{age_minutes} 分前に取得）")
   if records:
     print("\n".join(ui.render_current_usage_tables(ui.normalize_usage_records(records))))
   else:
@@ -68,7 +74,7 @@ def show_claude():
   return 0
 
 
-def show_agy():
+def read_agy():
   try:
     result = subprocess.run(
       ["agy", "--print-timeout", "20s", "-p", "/usage"],
@@ -92,9 +98,14 @@ def show_agy():
     if not percent.endswith("%") or not number(ui.number_from_value(percent[:-1]), 100):
       raise ValueError("agy /usage の残量を読み取れません。")
     title = window if window.startswith(group + " ") else f"{group} · {window}"
-    records.append({"title": title, "remaining_percent": percent[:-1], "reset_at": reset})
+    records.append({"title": title, "group": group, "window": window, "remaining_percent": percent[:-1], "reset_at": reset})
   if not records:
     raise ValueError("agy /usage から利用枠が返りませんでした。")
+  return records
+
+
+def show_agy():
+  records = read_agy()
   print("Antigravity CLI (agy)")
   print("\n".join(ui.render_current_usage_tables(ui.normalize_usage_records(records))))
   return 0
@@ -104,7 +115,19 @@ def main(argv=None):
   parser = argparse.ArgumentParser(prog="agent-limits", description="各サービスの使用枠を表示")
   parser.add_argument("service", nargs="?", choices=("codex", "claude", "agy", "gemini", "capture-claude"))
   parser.add_argument("--history", action="store_true", help="Codex の履歴を追加")
+  parser.add_argument("--html", metavar="FILE", type=Path, help="現在の利用枠を単体HTMLに保存")
+  parser.add_argument("--serve", action="store_true", help="再読み込みで更新するローカル画面を起動")
   args = parser.parse_args(argv)
+  if args.serve:
+    if args.history or args.html or args.service == "capture-claude":
+      parser.error("--serve は --html、--history、capture-claude と併用できません")
+    from limits_server import serve
+    return serve(args.service, read_claude, read_agy)
+  if args.html:
+    if args.history or args.service == "capture-claude":
+      parser.error("--html は現在の利用枠の表示に指定してください")
+    from limits_dashboard import write_dashboard
+    return write_dashboard(args.html, args.service, read_claude, read_agy)
   if args.history and args.service not in (None, "codex"):
     parser.error("--history は一覧または codex で指定してください")
   if args.service == "capture-claude":
