@@ -7,11 +7,11 @@
 .tickets h2 small{font-size:15px;color:#24503d}
 .tickets ul{list-style:none;padding:0;margin:12px 0 0}
 .tickets li{display:flex;flex-wrap:wrap;align-items:center;gap:16px;padding:8px 0;border-top:1px solid #e5ebe5}
-.meter-label{display:flex;justify-content:space-between;align-items:baseline;color:#405349;font-size:13px}
+.meter-label{display:flex;justify-content:space-between;align-items:baseline;gap:4px 10px;flex-wrap:wrap;color:#405349;font-size:13px}
 .meter-label strong{font-variant-numeric:tabular-nums}
-.cell .bar{margin:4px 0 10px}
-.bar.period{height:6px}
-.bar.period i{background:#647690}
+.bar.overlay{height:16px;margin:6px 0 10px;background:#eff1f0;border-radius:4px;overflow:hidden}
+.overlay .period-fill{position:absolute;inset:0 auto 0 0;background:#c2cdd8;border-radius:4px}
+.overlay i{position:absolute;left:0;top:5px;height:6px}
 .tickets .credit{display:grid;grid-template-columns:8em minmax(48px,1fr) 10em}
 .credit .bar{margin:0}
 .credit.warning i{background:#b77425}

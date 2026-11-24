@@ -54,14 +54,16 @@ def quota(record, seconds, now):
   if remaining is not None and 0 <= remaining <= 100:
     amount = f'{remaining:g}<span>%</span>'
     fill = f'<i style="width:{remaining}%"></i>'
-  period_bar = '<div class="meter-label">期間残り <strong>不明</strong></div>'
+  period_label = "不明"
+  background = ""
   if time_left is not None:
-    period_bar = (f'<div class="meter-label">期間残り <strong>{time_left:.0f}%</strong></div>'
-                  f'<div class="bar period"><i style="width:{time_left}%"></i></div>')
+    period_label = f"{time_left:.0f}%"
+    background = f'<span class="period-fill" style="width:{time_left}%"></span>'
   color = " low" if fill and time_left is not None and remaining < time_left else ""
   reset_label = f"{date_label(reset)} リセット" if reset else "リセット時刻不明"
-  return (f'<div class="meter-label">利用枠残り <strong class="value">{amount}</strong></div>'
-          f'<div class="bar{color}">{fill}</div>{period_bar}<div class="labels">'
+  return (f'<div class="meter-label"><span>利用枠残り <strong class="value">{amount}</strong></span>'
+          f'<span>期間残り <strong>{period_label}</strong></span></div>'
+          f'<div class="bar overlay{color}" aria-hidden="true">{background}{fill}</div><div class="labels">'
           f'<strong>{duration(reset, now) if reset else ""}</strong>{reset_label}</div>')
 
 
