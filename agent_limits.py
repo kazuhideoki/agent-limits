@@ -94,6 +94,13 @@ def live_claude_records():
       records.append({"title": label, "window_seconds": seconds, "reset_at": reset,
                       "awaiting_start": key == "five_hour" and window["utilization"] == 0 and reset is None,
                       "remaining_percent": 100 - window["utilization"]})
+    for window in data["rate_limits"].get("limits") or []:
+      if not isinstance(window, dict) or window.get("kind") != "weekly_scoped":
+        continue
+      model = (window.get("scope") or {}).get("model") or {}
+      if model.get("display_name") == "Fable" and number(window.get("percent"), 100):
+        records.append({"title": "Fable 週間枠", "group": "Fable", "window_seconds": 604800,
+                        "reset_at": window.get("resets_at"), "remaining_percent": 100 - window["percent"]})
     if records:
       return records
   raise ValueError("Claude Code から利用枠を取得できませんでした")

@@ -42,7 +42,7 @@ def period_for(record):
   return None
 
 
-def quota(record, seconds, now):
+def quota(record, seconds, now, scope=""):
   remaining = ui.percent_number_from_display(ui.usage_remaining(record))
   reset_value = ui.first_present(record, ("reset_at", "resetAt", "resets_at", "resetsAt", "next_reset_at", "nextResetAt", "refresh_at", "refreshAt"))
   reset = ui.parse_datetime_value(reset_value)
@@ -64,8 +64,9 @@ def quota(record, seconds, now):
   if record.get("awaiting_start"):
     period_label = "未開始"
     reset_label = "最初のメッセージで開始"
-  return (f'<div class="meter-label"><span>利用枠残り <strong class="value">{amount}</strong></span>'
-          f'<span>期間残り <strong>{period_label}</strong></span></div>'
+  scope_label = f'<b class="scope">{escape(scope)}</b>' if scope else ""
+  return (f'<div class="meter-label"><span>{scope_label}<strong class="value" title="利用枠残り">{amount}</strong></span>'
+          f'<span class="time-value" title="期間残り">{period_label}</span></div>'
           f'<div class="bar overlay{color}" aria-hidden="true">{background}{fill}</div><div class="labels">'
           f'<strong>{duration(reset, now) if reset else ""}</strong>{reset_label}</div>')
 
@@ -75,10 +76,11 @@ def model_rows(name, subtitle, records, now, empty="該当枠なし"):
   groups = defaultdict(lambda: defaultdict(list))
   others = []
   for record in records:
-    group = record.get("group") or subtitle
+    group = subtitle if name == "Claude Code" else record.get("group") or subtitle
     period = period_for(record)
     if period:
-      groups[group][period].append(quota(record, PERIODS[period][1], now))
+      scope = (record.get("group") or "共通") if name == "Claude Code" and period == "week" else ""
+      groups[group][period].append(quota(record, PERIODS[period][1], now, scope))
     else:
       others.append(f'<li>{escape(name)} · {escape(ui.usage_name(record))}{quota(record, None, now)}</li>')
   rows = []
