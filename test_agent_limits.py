@@ -2,7 +2,7 @@ import contextlib
 import io
 import subprocess
 from pathlib import Path
-from tempfile import TemporaryDirectory
+from tempfile import TemporaryDirectory, gettempdir
 import time
 import unittest
 from unittest.mock import patch
@@ -33,6 +33,7 @@ class ProviderTests(unittest.TestCase):
           contextlib.redirect_stdout(io.StringIO()) as out:
         self.assertEqual(limits.main([name]), 0)
         self.assertEqual(run.call_args.args[0][-2:], ["-p", "/usage"])
+        self.assertEqual(run.call_args.kwargs["cwd"], gettempdir())
         self.assertIn("Gemini Models · Weekly Limit Remaining", out.getvalue())
         self.assertIn("0%", out.getvalue())
 
