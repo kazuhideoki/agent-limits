@@ -127,7 +127,7 @@ def read_agy():
   try:
     result = subprocess.run(
       ["agy", "--print-timeout", "20s", "-p", "/usage"],
-      stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30,
+      cwd=gettempdir(), stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30,
     )
   except FileNotFoundError as error:
     raise ValueError("Antigravity CLI (agy) が PATH に見つかりません。") from error
