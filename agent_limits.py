@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, gettempdir
 import time
 
 import codex_limits as ui
@@ -48,19 +48,74 @@ def capture_claude(payload, path):
       Path(tmp.name).unlink(missing_ok=True)
 
 
-def show_claude():
+def read_claude():
   path = cache_path()
   if not path.exists():
     raise ValueError("利用枠の記録待ちです。Claude Code のステータスライン連携を確認してください。")
   data = ui.load_json(path)
   now = time.time()
-  print(f"Claude Code（{int(max(0, now - data['observed']) // 60)} 分前に取得）")
+  age_minutes = int(max(0, now - data["observed"]) // 60)
   records = []
   for key, window in data["windows"].items():
     if window["resets_at"] > now:
       label, seconds = WINDOWS[key]
       records.append({"title": label, "window_seconds": seconds, "reset_at": window["resets_at"],
                       "remaining_percent": 100 - window["used_percentage"]})
+  return age_minutes, records
+
+
+def live_claude_records():
+  request = {"type": "control_request", "request_id": "limits",
+             "request": {"subtype": "get_usage", "skip_behaviors": True}}
+  result = subprocess.run(
+    ["claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json",
+     "--verbose", "--no-session-persistence", "--strict-mcp-config", "--tools", "",
+     "--settings", '{"disableAllHooks":true}'],
+    input=json.dumps(request) + "\n", cwd=gettempdir(), capture_output=True, text=True, timeout=20,
+  )
+  if result.returncode:
+    raise ValueError("Claude Code の照会に失敗しました")
+  for line in result.stdout.splitlines():
+    message = json.loads(line)
+    if message.get("type") != "control_response":
+      continue
+    reply = message["response"]
+    if reply.get("request_id") != "limits" or reply.get("subtype") != "success":
+      continue
+    data = reply["response"]
+    if not data.get("rate_limits_available"):
+      break
+    records = []
+    for key, (label, seconds) in WINDOWS.items():
+      window = data["rate_limits"].get(key)
+      if not isinstance(window, dict) or not number(window.get("utilization"), 100):
+        continue
+      reset = window.get("resets_at")
+      records.append({"title": label, "window_seconds": seconds, "reset_at": reset,
+                      "awaiting_start": key == "five_hour" and window["utilization"] == 0 and reset is None,
+                      "remaining_percent": 100 - window["utilization"]})
+    for window in data["rate_limits"].get("limits") or []:
+      if not isinstance(window, dict) or window.get("kind") != "weekly_scoped":
+        continue
+      model = (window.get("scope") or {}).get("model") or {}
+      if model.get("display_name") == "Fable" and number(window.get("percent"), 100):
+        records.append({"title": "Fable 週間枠", "group": "Fable", "window_seconds": 604800,
+                        "reset_at": window.get("resets_at"), "remaining_percent": 100 - window["percent"]})
+    if records:
+      return records
+  raise ValueError("Claude Code から利用枠を取得できませんでした")
+
+
+def refresh_claude():
+  try:
+    return None, live_claude_records()
+  except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired):
+    return read_claude()
+
+
+def show_claude():
+  age_minutes, records = read_claude()
+  print(f"Claude Code（{age_minutes} 分前に取得）")
   if records:
     print("\n".join(ui.render_current_usage_tables(ui.normalize_usage_records(records))))
   else:
@@ -68,7 +123,7 @@ def show_claude():
   return 0
 
 
-def show_agy():
+def read_agy():
   try:
     result = subprocess.run(
       ["agy", "--print-timeout", "20s", "-p", "/usage"],
@@ -92,9 +147,14 @@ def show_agy():
     if not percent.endswith("%") or not number(ui.number_from_value(percent[:-1]), 100):
       raise ValueError("agy /usage の残量を読み取れません。")
     title = window if window.startswith(group + " ") else f"{group} · {window}"
-    records.append({"title": title, "remaining_percent": percent[:-1], "reset_at": reset})
+    records.append({"title": title, "group": group, "window": window, "remaining_percent": percent[:-1], "reset_at": reset})
   if not records:
     raise ValueError("agy /usage から利用枠が返りませんでした。")
+  return records
+
+
+def show_agy():
+  records = read_agy()
   print("Antigravity CLI (agy)")
   print("\n".join(ui.render_current_usage_tables(ui.normalize_usage_records(records))))
   return 0
@@ -104,7 +164,19 @@ def main(argv=None):
   parser = argparse.ArgumentParser(prog="agent-limits", description="各サービスの使用枠を表示")
   parser.add_argument("service", nargs="?", choices=("codex", "claude", "agy", "gemini", "capture-claude"))
   parser.add_argument("--history", action="store_true", help="Codex の履歴を追加")
+  parser.add_argument("--html", metavar="FILE", type=Path, help="現在の利用枠を単体HTMLに保存")
+  parser.add_argument("--serve", action="store_true", help="再読み込みで更新するローカル画面を起動")
   args = parser.parse_args(argv)
+  if args.serve:
+    if args.history or args.html or args.service == "capture-claude":
+      parser.error("--serve は --html、--history、capture-claude と併用できません")
+    from limits_server import serve
+    return serve(args.service, refresh_claude, read_agy)
+  if args.html:
+    if args.history or args.service == "capture-claude":
+      parser.error("--html は現在の利用枠の表示に指定してください")
+    from limits_dashboard import write_dashboard
+    return write_dashboard(args.html, args.service, read_claude, read_agy)
   if args.history and args.service not in (None, "codex"):
     parser.error("--history は一覧または codex で指定してください")
   if args.service == "capture-claude":

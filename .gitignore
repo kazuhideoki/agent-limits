@@ -5,3 +5,5 @@ __pycache__/
 .env.*
 auth.json
 .DS_Store
+
+.work/

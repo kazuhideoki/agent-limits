@@ -165,6 +165,7 @@ def append_rate_limit_records(records: list[dict[str, Any]], rate_limit: Any, li
     used_percent = first_present(window, ("used_percent", "usedPercent"))
     record = {
       "title": usage_limit_title(limit_name, window_key, window),
+      "group": limit_name or "共通枠",
       "remaining_percent": remaining_from_used_percent(used_percent),
       "used_display": used_percent_display(used_percent),
       "reset_at": first_present(window, ("reset_at", "resetAt")),
