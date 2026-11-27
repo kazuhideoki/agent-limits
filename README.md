@@ -13,6 +13,8 @@ PATH から使うには、実行ファイル `agent-limits` へのシンボリ�
 
 ### ブラウザで最新の利用枠を見る
 
+![Agent Limits の HTML 版。モデルごとの5時間枠・週間枠の残量と Codex のリセットチケットを表示](docs/limits-dashboard.png)
+
 ```sh
 ./agent-limits --serve
 ```
